@@ -500,6 +500,7 @@ document.getElementById('adicionar-ponto').onclick = async () => {
         document.getElementById('ponto-lng').value = '';
         carregarPontos();
         atualizarSelectDestinos();
+        console.log('✅ Ponto adicionado:', nome);
     } catch (error) {
         console.error('Erro ao adicionar ponto:', error);
     }
@@ -511,6 +512,8 @@ async function carregarPontos() {
         document.getElementById('lista-pontos').innerHTML = '';
         pontosDados = [];
         
+        console.log('📌 Total de pontos no Firebase:', snapshot.size);
+        
         snapshot.forEach(doc => {
             const ponto = doc.data();
             pontosDados.push({ id: doc.id, ...ponto });
@@ -520,6 +523,8 @@ async function carregarPontos() {
             div.innerHTML = `<b>${ponto.nome}</b><br><button onclick="removerPonto('${doc.id}')">Remover</button>`;
             document.getElementById('lista-pontos').appendChild(div);
         });
+        
+        console.log('📌 Pontos carregados em memória:', pontosDados.length);
     } catch (error) {
         console.error('Erro ao carregar pontos:', error);
     }
@@ -544,15 +549,24 @@ function mostrarUsuarioNoMapa() {
 }
 
 function mostrarPontosNoMapa() {
+    console.log('🔍 Tentando plotar pontos no mapa...');
+    console.log('📌 Pontos disponíveis:', pontosDados);
+    
+    // Limpar markers anteriores
     Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
     pontosMarkers = {};
     
     if (pontosDados.length === 0) {
-        alert('Nenhum ponto cadastrado');
+        alert('❌ Nenhum ponto cadastrado. Adicione pontos primeiro!');
+        console.log('⚠️ Lista de pontos vazia!');
         return;
     }
     
+    console.log(`✅ Plotando ${pontosDados.length} pontos no mapa...`);
+    
     pontosDados.forEach(ponto => {
+        console.log(`📍 Adicionando ponto: ${ponto.nome} em (${ponto.lat}, ${ponto.lng})`);
+        
         const marker = L.marker([ponto.lat, ponto.lng], { 
             icon: L.icon({
                 iconUrl: `data:image/svg+xml;base64,${btoa(`
@@ -569,13 +583,22 @@ function mostrarPontosNoMapa() {
         })
             .addTo(mapa)
             .bindPopup(`<b>📌 ${ponto.nome}</b><br>Lat: ${ponto.lat.toFixed(4)}<br>Lng: ${ponto.lng.toFixed(4)}`);
+        
         pontosMarkers[ponto.id] = marker;
     });
     
-    const bounds = Object.values(pontosMarkers).map(m => m.getLatLng());
-    if (bounds.length > 1) {
-        const group = new L.featureGroup(Object.values(pontosMarkers));
-        mapa.fitBounds(group.getBounds().pad(0.1));
+    // Ajustar zoom para ver todos os pontos
+    if (Object.keys(pontosMarkers).length > 0) {
+        const bounds = Object.values(pontosMarkers).map(m => m.getLatLng());
+        if (bounds.length === 1) {
+            // Se apenas um ponto
+            mapa.setView(bounds[0], 15);
+        } else {
+            // Se múltiplos pontos
+            const group = new L.featureGroup(Object.values(pontosMarkers));
+            mapa.fitBounds(group.getBounds().pad(0.1));
+        }
+        alert(`✅ ${pontosDados.length} ponto(s) exibido(s) no mapa!`);
     }
 }
 
@@ -584,6 +607,7 @@ async function removerPonto(id) {
         await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').doc(id).delete();
         carregarPontos();
         atualizarSelectDestinos();
+        mostrarPontosNoMapa();
     }
 }
 
