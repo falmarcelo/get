@@ -61,6 +61,8 @@
         .legenda-item { margin: 3px 0; }
         .status-badge { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
         
+        .info-gps { background: #e8f5e9; padding: 8px; border-radius: 3px; margin: 8px 0; font-size: 10px; color: #2e7d32; }
+        
         /* MOBILE OTIMIZADO */
         @media (max-width: 768px) {
             .dashboard { flex-direction: column; }
@@ -146,6 +148,10 @@
         <div class="content">
             <div id="map" style="flex: 1;"></div>
             <div class="controls">
+                <div class="info-gps">
+                    📍 GPS: <span id="gps-status">Aguardando...</span>
+                </div>
+                
                 <h3>🚦 Trânsito</h3>
                 <div id="traffic-status"></div>
                 
@@ -197,6 +203,7 @@ let equipesMarkers = {};
 let pontosDados = [];
 let equipasDados = [];
 let localizacaoAtual = null;
+let watchId = null;
 
 // ALTERNÂNCIA ENTRE LOGIN E CADASTRO
 document.getElementById('link-cadastro').onclick = (e) => {
@@ -252,16 +259,22 @@ auth.onAuthStateChanged(user => {
         atualizarSelectDestinos();
         iniciarGeolocalização();
         monitorarEquipesRealTime();
+        monitorarStatusEquipes();
     } else {
         document.getElementById('auth-screen').style.display = 'flex';
         document.getElementById('dashboard').style.display = 'none';
+        if (watchId) {
+            navigator.geolocation.clearWatch(watchId);
+        }
     }
 });
 
 // GEOLOCALIZAÇÃO GPS
 function iniciarGeolocalização() {
     if ('geolocation' in navigator) {
-        navigator.geolocation.watchPosition(
+        document.getElementById('gps-status').textContent = 'Conectando...';
+        
+        watchId = navigator.geolocation.watchPosition(
             (position) => {
                 localizacaoAtual = {
                     lat: position.coords.latitude,
@@ -269,12 +282,15 @@ function iniciarGeolocalização() {
                     accuracy: position.coords.accuracy
                 };
                 
-                // Atualizar localização da equipe do usuário no Firebase
+                document.getElementById('gps-status').textContent = `🟢 Online (${localizacaoAtual.accuracy.toFixed(0)}m)`;
+                
+                // Atualizar localização e status no Firebase
                 atualizarLocalizacaoNoFirebase();
                 
                 console.log('📍 Localização:', localizacaoAtual);
             },
             (error) => {
+                document.getElementById('gps-status').textContent = '⚠️ Erro GPS';
                 console.error('Erro ao obter localização:', error.message);
             },
             {
@@ -283,6 +299,8 @@ function iniciarGeolocalização() {
                 timeout: 5000
             }
         );
+    } else {
+        document.getElementById('gps-status').textContent = '❌ GPS indisponível';
     }
 }
 
@@ -290,15 +308,63 @@ async function atualizarLocalizacaoNoFirebase() {
     if (!localizacaoAtual || !usuarioAtual) return;
     
     try {
-        // Atualizar status "online" e localização atual do usuário
-        await db.collection('usuarios').doc(usuarioAtual.uid).update({
+        // Atualizar localização do usuário
+        await db.collection('usuarios').doc(usuarioAtual.uid).set({
             localizacaoAtual: localizacaoAtual,
             status: 'online',
             ultimaAtualizacao: new Date()
+        }, { merge: true });
+        
+        // Buscar todas as equipes do usuário e atualizar status
+        const equipesSnapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
+        
+        equipesSnapshot.forEach(async (equipeDoc) => {
+            const equipe = equipeDoc.data();
+            
+            // Se a equipe estava offline, mude para online quando localização é recebida
+            if (equipe.status === 'offline') {
+                await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeDoc.id).update({
+                    status: 'online',
+                    localizacaoAtual: localizacaoAtual,
+                    ultimaAtualizacao: new Date()
+                });
+            }
         });
+        
+        carregarEquipes();
     } catch (error) {
         console.error('Erro ao atualizar localização:', error);
     }
+}
+
+// MONITORAR E ATUALIZAR STATUS DAS EQUIPES A CADA 5 SEGUNDOS
+function monitorarStatusEquipes() {
+    setInterval(async () => {
+        if (!usuarioAtual) return;
+        
+        try {
+            const equipesSnapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
+            
+            equipesSnapshot.forEach(async (equipeDoc) => {
+                const equipe = equipeDoc.data();
+                const ultimaAtualizacao = equipe.ultimaAtualizacao ? new Date(equipe.ultimaAtualizacao.toDate()).getTime() : 0;
+                const agora = new Date().getTime();
+                const diferenca = agora - ultimaAtualizacao;
+                
+                // Se não recebe GPS há mais de 30 segundos, marca como offline
+                if (diferenca > 30000 && equipe.status !== 'offline') {
+                    await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeDoc.id).update({
+                        status: 'offline'
+                    });
+                    console.log('Equipe marcada como offline:', equipe.nome);
+                }
+            });
+            
+            carregarEquipes();
+        } catch (error) {
+            console.error('Erro ao monitorar status:', error);
+        }
+    }, 5000);
 }
 
 // MAPA
@@ -413,9 +479,10 @@ document.getElementById('criar-equipe').onclick = async () => {
             lider, 
             destino, 
             pontoDestino: { lat: pontoDestino.lat, lng: pontoDestino.lng },
-            localizacaoAtual: { lat: -23.5505, lng: -46.6333 },
+            localizacaoAtual: localizacaoAtual || { lat: -23.5505, lng: -46.6333 },
             status: 'offline', 
-            criado: new Date()
+            criado: new Date(),
+            ultimaAtualizacao: new Date()
         });
         document.getElementById('equipe-nome').value = '';
         document.getElementById('equipe-lider').value = '';
@@ -439,7 +506,7 @@ async function carregarEquipes() {
             const div = document.createElement('div');
             div.className = 'lista-item';
             const statusIcon = equipe.status === 'offline' ? '⚫' : equipe.status === 'online' ? '🟢' : '🟡';
-            div.innerHTML = `<b>${statusIcon} ${equipe.nome}</b><br><button onclick="removerEquipe('${doc.id}')">Remover</button>`;
+            div.innerHTML = `<b>${statusIcon} ${equipe.nome}</b><br><small>👤 ${equipe.lider}</small><br><small>Status: ${equipe.status}</small><br><button onclick="removerEquipe('${doc.id}')">Remover</button>`;
             document.getElementById('lista-equipes').appendChild(div);
         });
     } catch (error) {
@@ -460,7 +527,7 @@ function mostrarEquipesNoMapa() {
         const coords = equipe.localizacaoAtual || { lat: -23.5505, lng: -46.6333 };
         
         const cores = {
-            'offline': '#95a5a6',
+            'offline': '#e74c3c',
             'online': '#27ae60',
             'em_deslocamento': '#f39c12'
         };
@@ -482,9 +549,11 @@ function mostrarEquipesNoMapa() {
             })
         }).addTo(mapa).bindPopup(`
             <b>${equipe.nome}</b><br>
+            👤 Líder: ${equipe.lider}<br>
             Status: ${equipe.status}<br>
             <button onclick="atualizarStatusEquipe('${equipe.id}', 'online')">Online</button>
             <button onclick="atualizarStatusEquipe('${equipe.id}', 'em_deslocamento')">Em rota</button>
+            <button onclick="atualizarStatusEquipe('${equipe.id}', 'offline')">Offline</button>
         `);
         
         equipesMarkers[equipe.id] = marker;
@@ -512,10 +581,13 @@ function mostrarEquipesNoMapa() {
 async function atualizarStatusEquipe(equipeId, novoStatus) {
     try {
         await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeId).update({
-            status: novoStatus
+            status: novoStatus,
+            ultimaAtualizacao: new Date()
         });
         carregarEquipes();
-        mostrarEquipesNoMapa();
+        if (Object.keys(equipesMarkers).length > 0) {
+            mostrarEquipesNoMapa();
+        }
     } catch (error) {
         console.error('Erro ao atualizar status:', error);
     }
