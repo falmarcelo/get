@@ -17,6 +17,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     
+    <!-- Leaflet Awesome Markers -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet-awesome-markers/2.0.2/leaflet.awesome-markers.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: #f5f7fa; }
@@ -53,10 +58,12 @@
         .controls { width: 250px; background: white; border-left: 1px solid #eee; padding: 15px; overflow-y: auto; }
         .controle-grupo { margin-bottom: 15px; }
         .controle-grupo label { display: block; margin-bottom: 5px; color: #555; font-weight: bold; }
-        .controle-grupo button { width: 100%; padding: 8px; background: #3498db; color: white; border: none; border-radius: 3px; cursor: pointer; margin: 3px 0; }
+        .controle-grupo button { width: 100%; padding: 8px; background: #3498db; color: white; border: none; border-radius: 3px; cursor: pointer; margin: 3px 0; font-size: 12px; }
         .controle-grupo button:hover { background: #2980b9; }
         
-        .traffic-info { background: #f39c12; padding: 10px; border-radius: 3px; margin: 10px 0; color: white; font-size: 12px; }
+        .legenda { background: #f5f5f5; padding: 10px; border-radius: 3px; margin: 10px 0; font-size: 12px; }
+        .legenda-item { margin: 5px 0; }
+        .status-badge { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; }
         
         @media (max-width: 768px) {
             .dashboard { flex-direction: column; }
@@ -137,11 +144,29 @@
             <div class="controls">
                 <h3>🚦 Trânsito em Tempo Real</h3>
                 <div id="traffic-status"></div>
+                
                 <h3>🎮 Controles</h3>
                 <div class="controle-grupo">
                     <button id="centralizar-mapa">📍 Centralizar Mapa</button>
                     <button id="mostrar-pontos">📌 Mostrar Pontos</button>
                     <button id="mostrar-equipes">👥 Mostrar Equipes</button>
+                    <button id="limpar-mapa" style="background: #95a5a6;">🗑️ Limpar Mapa</button>
+                </div>
+                
+                <div class="legenda">
+                    <h4>📋 Legenda</h4>
+                    <div class="legenda-item">
+                        <span class="status-badge" style="background: #667eea;"></span> Pontos
+                    </div>
+                    <div class="legenda-item">
+                        <span class="status-badge" style="background: #27ae60;"></span> Equipe OK
+                    </div>
+                    <div class="legenda-item">
+                        <span class="status-badge" style="background: #f39c12;"></span> Em trânsito
+                    </div>
+                    <div class="legenda-item">
+                        <span class="status-badge" style="background: #e74c3c;"></span> Atrasada
+                    </div>
                 </div>
             </div>
         </div>
@@ -169,6 +194,7 @@ let rastreando = false;
 let pontosMarkers = {};
 let equipesMarkers = {};
 let pontosDados = [];
+let equipasDados = [];
 
 // ALTERNÂNCIA ENTRE LOGIN E CADASTRO
 document.getElementById('link-cadastro').onclick = (e) => {
@@ -221,6 +247,8 @@ auth.onAuthStateChanged(user => {
         setTimeout(() => inicializarMapa(), 100);
         carregarPontos();
         carregarEquipes();
+        atualizarSelectDestinos();
+        monitorarEquipesRealTime();
     } else {
         document.getElementById('auth-screen').style.display = 'flex';
         document.getElementById('dashboard').style.display = 'none';
@@ -229,7 +257,7 @@ auth.onAuthStateChanged(user => {
 
 // MAPA
 function inicializarMapa() {
-    if (mapa) return; // Evitar reinicializar
+    if (mapa) return;
     
     mapa = L.map('map').setView([-23.5505, -46.6333], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -237,7 +265,6 @@ function inicializarMapa() {
         maxZoom: 19
     }).addTo(mapa);
     
-    // Redimensionar mapa quando necessário
     setTimeout(() => mapa.invalidateSize(), 200);
 }
 
@@ -288,11 +315,10 @@ async function carregarPontos() {
 }
 
 function mostrarPontosNoMapa() {
-    // Limpar markers anteriores
+    // Limpar markers de pontos anteriores
     Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
     pontosMarkers = {};
     
-    // Adicionar novos markers
     if (pontosDados.length === 0) {
         alert('Nenhum ponto cadastrado');
         return;
@@ -305,7 +331,6 @@ function mostrarPontosNoMapa() {
         pontosMarkers[ponto.id] = marker;
     });
     
-    // Centralizar mapa nos pontos
     if (pontosDados.length > 0) {
         const bounds = Object.values(pontosMarkers).map(m => m.getLatLng());
         if (bounds.length > 1) {
@@ -340,8 +365,21 @@ document.getElementById('criar-equipe').onclick = async () => {
     }
     
     try {
+        // Encontrar coordenadas do ponto destino
+        const pontoDestino = pontosDados.find(p => p.id === destino);
+        if (!pontoDestino) {
+            alert('Ponto de destino não encontrado');
+            return;
+        }
+        
         await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').add({
-            nome, lider, destino, status: 'offline', criado: new Date()
+            nome, 
+            lider, 
+            destino, 
+            pontoDestino: { lat: pontoDestino.lat, lng: pontoDestino.lng },
+            localizacaoAtual: { lat: -23.5505, lng: -46.6333 }, // Localização inicial
+            status: 'offline', 
+            criado: new Date()
         });
         document.getElementById('equipe-nome').value = '';
         document.getElementById('equipe-lider').value = '';
@@ -356,12 +394,15 @@ async function carregarEquipes() {
     try {
         const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
         document.getElementById('lista-equipes').innerHTML = '';
+        equipasDados = [];
         
         snapshot.forEach(doc => {
             const equipe = doc.data();
+            equipasDados.push({ id: doc.id, ...equipe });
+            
             const div = document.createElement('div');
             div.className = 'lista-item';
-            const statusIcons = { 'offline': '⚫', 'em_deslocamento': '🟡', 'chegado': '🟢' };
+            const statusIcons = { 'offline': '⚫', 'em_deslocamento': '🟡', 'chegado': '🟢', 'atrasada': '🔴' };
             const statusIcon = statusIcons[equipe.status] || '⚪';
             
             div.innerHTML = `<b>${statusIcon} ${equipe.nome}</b><br><small>Líder: ${equipe.lider}</small><br><small>Status: ${equipe.status}</small><br>
@@ -370,6 +411,95 @@ async function carregarEquipes() {
         });
     } catch (error) {
         console.error('Erro ao carregar equipes:', error);
+    }
+}
+
+function mostrarEquipesNoMapa() {
+    // Limpar markers de equipes anteriores
+    Object.values(equipesMarkers).forEach(m => mapa.removeLayer(m));
+    equipesMarkers = {};
+    
+    if (equipasDados.length === 0) {
+        alert('Nenhuma equipe cadastrada');
+        return;
+    }
+    
+    equipasDados.forEach(equipe => {
+        const coords = equipe.localizacaoAtual || { lat: -23.5505, lng: -46.6333 };
+        
+        // Cores diferentes para cada status
+        const cores = {
+            'offline': '#95a5a6',
+            'em_deslocamento': '#f39c12',
+            'chegado': '#27ae60',
+            'atrasada': '#e74c3c'
+        };
+        
+        const cor = cores[equipe.status] || '#3498db';
+        
+        // Criar marker customizado
+        const marker = L.marker([coords.lat, coords.lng], {
+            title: equipe.nome,
+            icon: L.icon({
+                iconUrl: `data:image/svg+xml;base64,${btoa(`
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40" width="30" height="40">
+                        <path d="M15 0C8 0 2 6 2 15c0 10 13 25 13 25s13-15 13-25c0-9-6-15-13-15z" fill="${cor}"/>
+                        <text x="15" y="18" text-anchor="middle" fill="white" font-size="12" font-weight="bold">👤</text>
+                    </svg>
+                `)}`,
+                iconSize: [30, 40],
+                iconAnchor: [15, 40],
+                popupAnchor: [0, -40]
+            })
+        }).addTo(mapa).bindPopup(`
+            <b>👥 ${equipe.nome}</b><br>
+            Líder: ${equipe.lider}<br>
+            Status: ${equipe.status}<br>
+            Lat: ${coords.lat.toFixed(4)}<br>
+            Lng: ${coords.lng.toFixed(4)}<br>
+            <button onclick="atualizarStatusEquipe('${equipe.id}', 'em_deslocamento')">Iniciar</button>
+            <button onclick="atualizarStatusEquipe('${equipe.id}', 'chegado')">Chegou</button>
+        `);
+        
+        equipesMarkers[equipe.id] = marker;
+        
+        // Desenhar linha até o destino
+        if (equipe.pontoDestino) {
+            L.polyline([
+                [coords.lat, coords.lng],
+                [equipe.pontoDestino.lat, equipe.pontoDestino.lng]
+            ], {
+                color: cor,
+                weight: 2,
+                opacity: 0.7,
+                dashArray: '5, 5'
+            }).addTo(mapa);
+        }
+    });
+    
+    if (equipasDados.length > 0) {
+        const bounds = Object.values(equipesMarkers).map(m => m.getLatLng());
+        if (bounds.length > 1) {
+            const group = new L.featureGroup(Object.values(equipesMarkers));
+            mapa.fitBounds(group.getBounds().pad(0.1));
+        } else {
+            const loc = equipasDados[0].localizacaoAtual || { lat: -23.5505, lng: -46.6333 };
+            mapa.setView([loc.lat, loc.lng], 15);
+        }
+    }
+    
+    alert(`${equipasDados.length} equipe(s) exibida(s) no mapa!`);
+}
+
+async function atualizarStatusEquipe(equipeId, novoStatus) {
+    try {
+        await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeId).update({
+            status: novoStatus
+        });
+        carregarEquipes();
+        mostrarEquipesNoMapa();
+    } catch (error) {
+        console.error('Erro ao atualizar status:', error);
     }
 }
 
@@ -398,6 +528,33 @@ async function atualizarSelectDestinos() {
     }
 }
 
+// MONITORAR EQUIPES EM TEMPO REAL (simular movimentação)
+function monitorarEquipesRealTime() {
+    setInterval(async () => {
+        if (!rastreando) return;
+        
+        try {
+            const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
+            
+            snapshot.forEach(doc => {
+                const equipe = doc.data();
+                
+                // Se equipe está em deslocamento, simular movimento
+                if (equipe.status === 'em_deslocamento' && equipe.localizacaoAtual && equipe.pontoDestino) {
+                    const novaLat = equipe.localizacaoAtual.lat + (Math.random() - 0.5) * 0.002;
+                    const novaLng = equipe.localizacaoAtual.lng + (Math.random() - 0.5) * 0.002;
+                    
+                    db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(doc.id).update({
+                        localizacaoAtual: { lat: novaLat, lng: novaLng }
+                    });
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao monitorar:', error);
+        }
+    }, 5000); // Atualizar a cada 5 segundos
+}
+
 // CONTROLES
 document.getElementById('iniciar-rastreamento').onclick = () => {
     rastreando = true;
@@ -415,8 +572,15 @@ document.getElementById('centralizar-mapa').onclick = () => {
 
 document.getElementById('mostrar-pontos').onclick = mostrarPontosNoMapa;
 
-document.getElementById('mostrar-equipes').onclick = () => {
-    alert('Recurso de visualizar equipes no mapa será implementado!');
+document.getElementById('mostrar-equipes').onclick = mostrarEquipesNoMapa;
+
+document.getElementById('limpar-mapa').onclick = () => {
+    // Limpar todos os markers
+    Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
+    Object.values(equipesMarkers).forEach(m => mapa.removeLayer(m));
+    pontosMarkers = {};
+    equipesMarkers = {};
+    alert('🗑️ Mapa limpo!');
 };
 
 // SIMULAÇÃO DE TRÂNSITO
