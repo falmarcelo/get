@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão de Equipes Com Mapa E Tráfego</title>
+    <title>Gestão de Equipes - Sistema Multi-Usuário</title>
     <meta name="theme-color" content="#2c3e50">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Gestão de Equipes">
@@ -31,6 +31,7 @@
         .auth-container button:hover { background: #5568d3; }
         .auth-container a { display: block; margin-top: 15px; text-align: center; color: #667eea; text-decoration: none; }
         .erro { color: red; margin-top: 10px; font-size: 14px; }
+        .sucesso { color: green; margin-top: 10px; font-size: 14px; }
         
         /* DASHBOARD */
         .dashboard { display: flex; height: 100vh; }
@@ -42,12 +43,17 @@
         .sidebar button:hover { background: #5568d3; }
         .lista-item { background: #34495e; padding: 8px; margin: 4px 0; border-radius: 3px; font-size: 11px; }
         .lista-item button { width: auto; padding: 4px 8px; font-size: 10px; margin: 2px 2px 2px 0; }
+        .role-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; margin-left: 5px; }
+        .role-admin { background: #e74c3c; color: white; }
+        .role-lider { background: #f39c12; color: white; }
+        .role-membro { background: #3498db; color: white; }
         
         /* MAIN CONTENT */
         .main-content { flex: 1; display: flex; flex-direction: column; }
         .header { background: white; padding: 12px 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
         .header h1 { color: #2c3e50; font-size: 16px; }
         .header button { background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; margin-left: 5px; font-size: 12px; }
+        .user-info { font-size: 11px; color: #7f8c8d; margin-right: 10px; }
         
         .content { flex: 1; display: flex; }
         #map { flex: 1; background: #eee; }
@@ -66,17 +72,17 @@
         /* MOBILE OTIMIZADO */
         @media (max-width: 768px) {
             .dashboard { flex-direction: column; }
-            .sidebar { width: 100%; max-height: 120px; padding: 10px; }
+            .sidebar { width: 100%; max-height: 150px; padding: 10px; }
             .sidebar h3 { display: none; }
             .sidebar input, .sidebar select { font-size: 11px; padding: 5px; margin: 2px 0; }
             .sidebar button { padding: 6px; font-size: 10px; margin: 3px 0; }
             .lista-item { display: none; }
-            .controls { width: 100%; max-height: 80px; padding: 8px; }
+            .controls { width: 100%; max-height: 100px; padding: 8px; }
             .header { padding: 10px; }
             .header h1 { font-size: 14px; }
             .header button { padding: 6px 10px; font-size: 10px; margin-left: 3px; }
             .content { flex-direction: column; }
-            #map { height: 60vh; }
+            #map { height: 55vh; }
             .controle-grupo button { padding: 5px; font-size: 10px; margin: 1px 0; }
         }
     </style>
@@ -94,7 +100,7 @@
                 <label>Senha:</label>
                 <input type="password" id="login-password" required>
                 <button type="submit">Entrar</button>
-                <a href="#" id="link-cadastro">Não tem conta? Cadastre-se</a>
+                <a href="#" id="link-cadastro">Primeira vez? Cadastre-se</a>
                 <div id="login-erro" class="erro"></div>
             </form>
         </div>
@@ -102,13 +108,18 @@
         <div id="register-view" style="display:none">
             <h2>📝 Cadastro</h2>
             <form id="register-form">
+                <label>Nome Completo:</label>
+                <input type="text" id="register-nome" required>
                 <label>E-mail:</label>
                 <input type="email" id="register-email" required>
                 <label>Senha:</label>
                 <input type="password" id="register-password" required>
+                <label>Código da Empresa (deixe vazio para criar nova):</label>
+                <input type="text" id="register-empresa-codigo" placeholder="Ex: ABC123">
                 <button type="submit">Cadastrar</button>
                 <a href="#" id="link-login">Voltar ao login</a>
                 <div id="register-erro" class="erro"></div>
+                <div id="register-sucesso" class="sucesso"></div>
             </form>
         </div>
     </div>
@@ -117,31 +128,52 @@
 <!-- DASHBOARD -->
 <div id="dashboard" class="dashboard" style="display:none">
     <div class="sidebar">
-        <h1>📍 Gestão</h1>
+        <h1>📍 Gestão de Equipes</h1>
+        <div style="background: #34495e; padding: 6px; border-radius: 3px; margin: 5px 0; font-size: 10px;">
+            <div><b id="user-nome">Usuário</b> <span id="user-role-badge"></span></div>
+            <div style="color: #bdc3c7; margin-top: 3px;">Empresa: <span id="empresa-nome">Carregando...</span></div>
+            <div style="color: #bdc3c7;">Código: <span id="empresa-codigo">---</span></div>
+        </div>
         <button id="logout-btn" style="background: #e74c3c;">Sair</button>
         
-        <h3>📍 Novo Ponto</h3>
-        <input type="text" id="ponto-nome" placeholder="Nome">
-        <input type="number" id="ponto-lat" placeholder="Lat" step="0.0001">
-        <input type="number" id="ponto-lng" placeholder="Lng" step="0.0001">
-        <button id="adicionar-ponto">+ Ponto</button>
+        <!-- ADMIN/LÍDER: Criar Pontos -->
+        <div id="admin-pontos-section" style="display:none;">
+            <h3>📍 Novo Ponto</h3>
+            <input type="text" id="ponto-nome" placeholder="Nome">
+            <input type="number" id="ponto-lat" placeholder="Lat" step="0.0001">
+            <input type="number" id="ponto-lng" placeholder="Lng" step="0.0001">
+            <button id="adicionar-ponto">+ Adicionar Ponto</button>
+        </div>
         
-        <h3>👥 Nova Equipe</h3>
-        <input type="text" id="equipe-nome" placeholder="Nome da equipe">
-        <input type="text" id="equipe-lider" placeholder="Líder">
-        <select id="equipe-destino"><option value="">Selecione ponto</option></select>
-        <button id="criar-equipe">+ Equipe</button>
+        <!-- ADMIN: Criar Equipes -->
+        <div id="admin-equipes-section" style="display:none;">
+            <h3>👥 Nova Equipe</h3>
+            <input type="text" id="equipe-nome" placeholder="Nome da equipe">
+            <select id="equipe-lider"><option value="">Selecione líder</option></select>
+            <select id="equipe-destino"><option value="">Selecione destino</option></select>
+            <button id="criar-equipe">+ Criar Equipe</button>
+        </div>
         
+        <!-- ADMIN: Gerenciar Usuários -->
+        <div id="admin-usuarios-section" style="display:none;">
+            <h3>👤 Usuários</h3>
+            <div id="lista-usuarios"></div>
+        </div>
+        
+        <h3>📍 Pontos</h3>
         <div id="lista-pontos"></div>
+        
+        <h3>👥 Equipes</h3>
         <div id="lista-equipes"></div>
     </div>
     
     <div class="main-content">
         <div class="header">
-            <h1>🗺️ Monitoramento</h1>
-            <div>
+            <h1>🗺️ Monitoramento em Tempo Real</h1>
+            <div style="display: flex; align-items: center;">
+                <span class="user-info" id="header-user-info"></span>
                 <button id="iniciar-rastreamento">▶️ Iniciar</button>
-                <button id="parar-rastreamento">⏸️ Pausar</button>
+                <button id="parar-rastreamento" style="background: #f39c12;">⏸️ Pausar</button>
             </div>
         </div>
         
@@ -152,21 +184,22 @@
                     📍 GPS: <span id="gps-status">Aguardando...</span>
                 </div>
                 
-                <h3>🚦 Trânsito Atual</h3>
+                <h3>🚦 Trânsito</h3>
                 <select id="traffic-equipe-select" style="width: 100%; padding: 4px; margin: 3px 0; border: 1px solid #ddd; border-radius: 3px; font-size: 10px;">
                     <option value="">Sua localização</option>
                 </select>
                 <div id="traffic-status" style="font-size: 11px;"></div>
                 <div style="font-size: 9px; color: #666; margin-top: 5px;">
-                    <small>Local: <span id="traffic-location">Aguardando GPS...</span></small>
+                    <small>Local: <span id="traffic-location">Aguardando...</span></small>
                 </div>
                 
                 <h3>🎮 Controles</h3>
                 <div class="controle-grupo">
                     <button id="centralizar-mapa">📍 Centro</button>
-                    <button id="mostrar-usuario">👤 Minha Local</button>
+                    <button id="mostrar-usuario">👤 Eu</button>
                     <button id="mostrar-pontos">📌 Pontos</button>
                     <button id="mostrar-equipes">👥 Equipes</button>
+                    <button id="mostrar-todos">🌍 Tudo</button>
                     <button id="calcular-distancias">📏 Distâncias</button>
                     <button id="limpar-mapa">🗑️ Limpar</button>
                 </div>
@@ -216,16 +249,28 @@ const db = firebase.firestore();
 
 let mapa;
 let usuarioAtual = null;
+let empresaAtual = null;
+let perfilUsuario = null;
 let rastreando = false;
 let pontosMarkers = {};
 let equipesMarkers = {};
+let usuariosMarkers = {};
 let usuarioMarker = null;
 let pontosDados = [];
 let equipasDados = [];
+let usuariosDados = [];
 let localizacaoAtual = null;
 let watchId = null;
 
-// ALTERNÂNCIA ENTRE LOGIN E CADASTRO
+// GERADOR DE CÓDIGO DE EMPRESA
+function gerarCodigoEmpresa() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+// Aguardar DOM carregar
+document.addEventListener('DOMContentLoaded', function() {
+    
+// ALTERNÂNCIA LOGIN/CADASTRO
 document.getElementById('link-cadastro').onclick = (e) => {
     e.preventDefault();
     document.getElementById('login-view').style.display = 'none';
@@ -253,12 +298,71 @@ document.getElementById('login-form').onsubmit = async (e) => {
 // CADASTRO
 document.getElementById('register-form').onsubmit = async (e) => {
     e.preventDefault();
+    const nome = document.getElementById('register-nome').value;
     const email = document.getElementById('register-email').value;
     const password = document.getElementById('register-password').value;
+    const codigoEmpresa = document.getElementById('register-empresa-codigo').value.trim();
+    
     try {
-        await auth.createUserWithEmailAndPassword(email, password);
+        // Criar conta
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+        
+        let empresaId = null;
+        let role = 'membro';
+        let nomeEmpresa = '';
+        let codigoFinal = '';
+        
+        if (codigoEmpresa) {
+            // Buscar empresa pelo código
+            const empresasSnapshot = await db.collection('empresas')
+                .where('codigo', '==', codigoEmpresa.toUpperCase())
+                .get();
+            
+            if (empresasSnapshot.empty) {
+                throw new Error('Código de empresa não encontrado');
+            }
+            
+            empresaId = empresasSnapshot.docs[0].id;
+            nomeEmpresa = empresasSnapshot.docs[0].data().nome;
+            codigoFinal = codigoEmpresa.toUpperCase();
+        } else {
+            // Criar nova empresa
+            codigoFinal = gerarCodigoEmpresa();
+            const novaEmpresa = await db.collection('empresas').add({
+                nome: `Empresa de ${nome}`,
+                codigo: codigoFinal,
+                criadoEm: new Date(),
+                criadoPor: user.uid
+            });
+            empresaId = novaEmpresa.id;
+            nomeEmpresa = `Empresa de ${nome}`;
+            role = 'admin'; // Primeiro usuário é admin
+        }
+        
+        // Criar perfil do usuário
+        await db.collection('empresas').doc(empresaId).collection('usuarios').doc(user.uid).set({
+            nome: nome,
+            email: email,
+            role: role,
+            criadoEm: new Date(),
+            localizacaoAtual: null,
+            status: 'offline',
+            equipeId: null
+        });
+        
+        document.getElementById('register-sucesso').textContent = 
+            `✅ Conta criada! ${role === 'admin' ? `Seu código: ${codigoFinal}` : 'Bem-vindo!'}`;
+        document.getElementById('register-erro').textContent = '';
+        
+        setTimeout(() => {
+            document.getElementById('login-view').style.display = 'block';
+            document.getElementById('register-view').style.display = 'none';
+        }, 2000);
+        
     } catch (error) {
         document.getElementById('register-erro').textContent = error.message;
+        document.getElementById('register-sucesso').textContent = '';
     }
 };
 
@@ -268,18 +372,16 @@ document.getElementById('logout-btn').onclick = () => {
 };
 
 // MONITORAR AUTENTICAÇÃO
-auth.onAuthStateChanged(user => {
+auth.onAuthStateChanged(async user => {
     usuarioAtual = user;
     if (user) {
+        await carregarPerfilEmpresa();
         document.getElementById('auth-screen').style.display = 'none';
         document.getElementById('dashboard').style.display = 'flex';
         setTimeout(() => inicializarMapa(), 100);
-        carregarPontos();
-        carregarEquipes();
-        atualizarSelectDestinos();
+        await carregarDados();
         iniciarGeolocalização();
-        monitorarEquipesRealTime();
-        monitorarStatusEquipes();
+        monitorarLocalizacoesRealTime();
         atualizarTrafegoEmTempoReal();
     } else {
         document.getElementById('auth-screen').style.display = 'flex';
@@ -290,7 +392,264 @@ auth.onAuthStateChanged(user => {
     }
 });
 
-// GEOLOCALIZAÇÃO GPS
+// CARREGAR PERFIL E EMPRESA
+async function carregarPerfilEmpresa() {
+    try {
+        // Buscar empresa do usuário
+        const empresasSnapshot = await db.collection('empresas').get();
+        let encontrou = false;
+        
+        for (const empresaDoc of empresasSnapshot.docs) {
+            const usuarioDoc = await db.collection('empresas')
+                .doc(empresaDoc.id)
+                .collection('usuarios')
+                .doc(usuarioAtual.uid)
+                .get();
+            
+            if (usuarioDoc.exists) {
+                empresaAtual = empresaDoc.id;
+                perfilUsuario = usuarioDoc.data();
+                const empresaData = empresaDoc.data();
+                
+                // Atualizar UI
+                document.getElementById('user-nome').textContent = perfilUsuario.nome;
+                document.getElementById('empresa-nome').textContent = empresaData.nome;
+                document.getElementById('empresa-codigo').textContent = empresaData.codigo;
+                document.getElementById('header-user-info').textContent = `${perfilUsuario.nome} (${perfilUsuario.role})`;
+                
+                // Role badge
+                const roleBadge = document.getElementById('user-role-badge');
+                roleBadge.textContent = perfilUsuario.role.toUpperCase();
+                roleBadge.className = `role-badge role-${perfilUsuario.role}`;
+                
+                // Mostrar/esconder seções por permissão
+                if (perfilUsuario.role === 'admin') {
+                    document.getElementById('admin-pontos-section').style.display = 'block';
+                    document.getElementById('admin-equipes-section').style.display = 'block';
+                    document.getElementById('admin-usuarios-section').style.display = 'block';
+                } else if (perfilUsuario.role === 'lider') {
+                    document.getElementById('admin-pontos-section').style.display = 'block';
+                }
+                
+                encontrou = true;
+                break;
+            }
+        }
+        
+        if (!encontrou) {
+            alert('Erro: Perfil não encontrado. Faça logout e cadastre-se novamente.');
+            auth.signOut();
+        }
+    } catch (error) {
+        console.error('Erro ao carregar perfil:', error);
+    }
+}
+
+// CARREGAR TODOS OS DADOS
+async function carregarDados() {
+    await carregarPontos();
+    await carregarEquipes();
+    await carregarUsuarios();
+    atualizarSelectsAdmin();
+}
+
+// PONTOS
+document.getElementById('adicionar-ponto').onclick = async () => {
+    if (!['admin', 'lider'].includes(perfilUsuario.role)) {
+        alert('Apenas administradores e líderes podem criar pontos');
+        return;
+    }
+    
+    const nome = document.getElementById('ponto-nome').value;
+    const lat = parseFloat(document.getElementById('ponto-lat').value);
+    const lng = parseFloat(document.getElementById('ponto-lng').value);
+    
+    if (!nome || !lat || !lng || isNaN(lat) || isNaN(lng)) {
+        alert('Preencha todos os campos corretamente');
+        return;
+    }
+    
+    try {
+        await db.collection('empresas').doc(empresaAtual).collection('pontos').add({
+            nome, lat, lng, 
+            criadoPor: usuarioAtual.uid,
+            criadoEm: new Date()
+        });
+        document.getElementById('ponto-nome').value = '';
+        document.getElementById('ponto-lat').value = '';
+        document.getElementById('ponto-lng').value = '';
+        carregarPontos();
+    } catch (error) {
+        console.error('Erro ao adicionar ponto:', error);
+        alert('Erro ao adicionar ponto');
+    }
+};
+
+async function carregarPontos() {
+    if (!empresaAtual) {
+        console.log('⚠️ empresaAtual não definida ainda');
+        return;
+    }
+    
+    try {
+        console.log('🔍 Buscando pontos em:', `empresas/${empresaAtual}/pontos`);
+        const snapshot = await db.collection('empresas').doc(empresaAtual).collection('pontos').get();
+        document.getElementById('lista-pontos').innerHTML = '';
+        pontosDados = [];
+        
+        console.log('📌 Total de pontos encontrados:', snapshot.size);
+        
+        snapshot.forEach(doc => {
+            const ponto = doc.data();
+            pontosDados.push({ id: doc.id, ...ponto });
+            console.log('✅ Ponto carregado:', ponto.nome);
+            
+            const div = document.createElement('div');
+            div.className = 'lista-item';
+            div.innerHTML = `<b>📍 ${ponto.nome}</b><br><small>${ponto.lat.toFixed(3)}, ${ponto.lng.toFixed(3)}</small>`;
+            
+            if (perfilUsuario && perfilUsuario.role === 'admin') {
+                const btnRemover = document.createElement('button');
+                btnRemover.textContent = 'Remover';
+                btnRemover.onclick = () => removerPonto(doc.id);
+                div.appendChild(btnRemover);
+            }
+            
+            document.getElementById('lista-pontos').appendChild(div);
+        });
+        
+        console.log('📊 Total de pontos em memória:', pontosDados.length);
+    } catch (error) {
+        console.error('❌ Erro ao carregar pontos:', error);
+        console.error('Detalhes:', error.message);
+    }
+}
+
+async function removerPonto(id) {
+    if (confirm('Remover este ponto?')) {
+        await db.collection('empresas').doc(empresaAtual).collection('pontos').doc(id).delete();
+        carregarPontos();
+    }
+}
+
+// EQUIPES
+document.getElementById('criar-equipe').onclick = async () => {
+    if (perfilUsuario.role !== 'admin') {
+        alert('Apenas administradores podem criar equipes');
+        return;
+    }
+    
+    const nome = document.getElementById('equipe-nome').value;
+    const liderId = document.getElementById('equipe-lider').value;
+    const destinoId = document.getElementById('equipe-destino').value;
+    
+    if (!nome || !liderId || !destinoId) {
+        alert('Preencha todos os campos');
+        return;
+    }
+    
+    try {
+        const pontoDestino = pontosDados.find(p => p.id === destinoId);
+        
+        await db.collection('empresas').doc(empresaAtual).collection('equipes').add({
+            nome, 
+            liderId,
+            destinoId,
+            pontoDestino: { lat: pontoDestino.lat, lng: pontoDestino.lng },
+            membrosIds: [liderId],
+            criadoEm: new Date()
+        });
+        
+        // Atualizar role do líder e vincular à equipe
+        await db.collection('empresas').doc(empresaAtual).collection('usuarios').doc(liderId).update({
+            role: 'lider'
+        });
+        
+        document.getElementById('equipe-nome').value = '';
+        carregarEquipes();
+        carregarUsuarios();
+    } catch (error) {
+        console.error('Erro ao criar equipe:', error);
+        alert('Erro ao criar equipe');
+    }
+};
+
+async function carregarEquipes() {
+    try {
+        const snapshot = await db.collection('empresas').doc(empresaAtual).collection('equipes').get();
+        document.getElementById('lista-equipes').innerHTML = '';
+        equipasDados = [];
+        
+        snapshot.forEach(doc => {
+            const equipe = doc.data();
+            equipasDados.push({ id: doc.id, ...equipe });
+            
+            const lider = usuariosDados.find(u => u.id === equipe.liderId);
+            const nomeLider = lider ? lider.nome : 'Líder';
+            
+            const div = document.createElement('div');
+            div.className = 'lista-item';
+            div.innerHTML = `<b>👥 ${equipe.nome}</b><br><small>Líder: ${nomeLider}</small>`;
+            document.getElementById('lista-equipes').appendChild(div);
+        });
+        
+        atualizarSelectTrafegoEquipes();
+    } catch (error) {
+        console.error('Erro ao carregar equipes:', error);
+    }
+}
+
+// USUÁRIOS
+async function carregarUsuarios() {
+    try {
+        const snapshot = await db.collection('empresas').doc(empresaAtual).collection('usuarios').get();
+        usuariosDados = [];
+        
+        snapshot.forEach(doc => {
+            const usuario = doc.data();
+            usuariosDados.push({ id: doc.id, ...usuario });
+        });
+        
+        if (perfilUsuario.role === 'admin') {
+            const lista = document.getElementById('lista-usuarios');
+            lista.innerHTML = '';
+            
+            usuariosDados.forEach(usuario => {
+                const div = document.createElement('div');
+                div.className = 'lista-item';
+                const roleBadge = `<span class="role-badge role-${usuario.role}">${usuario.role}</span>`;
+                div.innerHTML = `<b>${usuario.nome}</b> ${roleBadge}<br><small>${usuario.email}</small>`;
+                lista.appendChild(div);
+            });
+        }
+    } catch (error) {
+        console.error('Erro ao carregar usuários:', error);
+    }
+}
+
+function atualizarSelectsAdmin() {
+    // Select de líderes
+    const selectLider = document.getElementById('equipe-lider');
+    selectLider.innerHTML = '<option value="">Selecione líder</option>';
+    usuariosDados.filter(u => u.role === 'membro').forEach(usuario => {
+        const option = document.createElement('option');
+        option.value = usuario.id;
+        option.textContent = usuario.nome;
+        selectLider.appendChild(option);
+    });
+    
+    // Select de destinos
+    const selectDestino = document.getElementById('equipe-destino');
+    selectDestino.innerHTML = '<option value="">Selecione destino</option>';
+    pontosDados.forEach(ponto => {
+        const option = document.createElement('option');
+        option.value = ponto.id;
+        option.textContent = ponto.nome;
+        selectDestino.appendChild(option);
+    });
+}
+
+// GEOLOCALIZAÇÃO
 function iniciarGeolocalização() {
     if ('geolocation' in navigator) {
         document.getElementById('gps-status').textContent = 'Conectando...';
@@ -305,207 +664,57 @@ function iniciarGeolocalização() {
                 
                 document.getElementById('gps-status').textContent = `🟢 Online (${localizacaoAtual.accuracy.toFixed(0)}m)`;
                 
-                // Atualizar marker do usuário no mapa
                 atualizarMarkerUsuario();
-                
-                // Atualizar localização no Firebase
                 atualizarLocalizacaoNoFirebase();
-                
-                // Atualizar trânsito da localização do usuário
                 atualizarTrafegoEmTempoReal();
-                
-                console.log('📍 Localização:', localizacaoAtual);
             },
             (error) => {
                 document.getElementById('gps-status').textContent = '⚠️ Erro GPS';
-                console.error('Erro ao obter localização:', error.message);
+                console.error('Erro GPS:', error.message);
             },
-            {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 5000
-            }
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
         );
-    } else {
-        document.getElementById('gps-status').textContent = '❌ GPS indisponível';
     }
-}
-
-function atualizarMarkerUsuario() {
-    if (!localizacaoAtual || !mapa) return;
-    
-    if (usuarioMarker) {
-        mapa.removeLayer(usuarioMarker);
-    }
-    
-    // Criar marker customizado para o usuário
-    usuarioMarker = L.marker([localizacaoAtual.lat, localizacaoAtual.lng], {
-        icon: L.icon({
-            iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
-                    <circle cx="20" cy="20" r="18" fill="#3498db" opacity="0.3"/>
-                    <circle cx="20" cy="20" r="12" fill="#3498db"/>
-                    <circle cx="20" cy="20" r="6" fill="white"/>
-                </svg>
-            `)}`,
-            iconSize: [40, 40],
-            iconAnchor: [20, 20],
-            popupAnchor: [0, -20]
-        })
-    }).addTo(mapa).bindPopup(`
-        <b>👤 Sua Localização</b><br>
-        Lat: ${localizacaoAtual.lat.toFixed(4)}<br>
-        Lng: ${localizacaoAtual.lng.toFixed(4)}<br>
-        Precisão: ${localizacaoAtual.accuracy.toFixed(0)}m
-    `);
 }
 
 async function atualizarLocalizacaoNoFirebase() {
-    if (!localizacaoAtual || !usuarioAtual) return;
+    if (!localizacaoAtual || !empresaAtual) return;
     
     try {
-        // Atualizar localização do usuário
-        await db.collection('usuarios').doc(usuarioAtual.uid).set({
+        await db.collection('empresas').doc(empresaAtual).collection('usuarios').doc(usuarioAtual.uid).update({
             localizacaoAtual: localizacaoAtual,
             status: 'online',
             ultimaAtualizacao: new Date()
-        }, { merge: true });
-        
-        // Buscar todas as equipes do usuário e atualizar status
-        const equipesSnapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
-        
-        equipesSnapshot.forEach(async (equipeDoc) => {
-            const equipe = equipeDoc.data();
-            
-            // Se a equipe estava offline, mude para online quando localização é recebida
-            if (equipe.status === 'offline') {
-                await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeDoc.id).update({
-                    status: 'online',
-                    localizacaoAtual: localizacaoAtual,
-                    ultimaAtualizacao: new Date()
-                });
-            }
         });
-        
-        carregarEquipes();
     } catch (error) {
         console.error('Erro ao atualizar localização:', error);
     }
 }
 
-// MONITORAR E ATUALIZAR STATUS DAS EQUIPES A CADA 5 SEGUNDOS
-function monitorarStatusEquipes() {
+function monitorarLocalizacoesRealTime() {
     setInterval(async () => {
-        if (!usuarioAtual) return;
+        if (!rastreando) return;
         
         try {
-            const equipesSnapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
+            const snapshot = await db.collection('empresas').doc(empresaAtual).collection('usuarios').get();
             
-            equipesSnapshot.forEach(async (equipeDoc) => {
-                const equipe = equipeDoc.data();
-                const ultimaAtualizacao = equipe.ultimaAtualizacao ? new Date(equipe.ultimaAtualizacao.toDate()).getTime() : 0;
+            snapshot.forEach(async doc => {
+                const usuario = doc.data();
+                const ultimaAtualizacao = usuario.ultimaAtualizacao ? new Date(usuario.ultimaAtualizacao.toDate()).getTime() : 0;
                 const agora = new Date().getTime();
-                const diferenca = agora - ultimaAtualizacao;
                 
-                // Se não recebe GPS há mais de 30 segundos, marca como offline
-                if (diferenca > 30000 && equipe.status !== 'offline') {
-                    await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeDoc.id).update({
+                if (agora - ultimaAtualizacao > 30000 && usuario.status !== 'offline') {
+                    await db.collection('empresas').doc(empresaAtual).collection('usuarios').doc(doc.id).update({
                         status: 'offline'
                     });
-                    console.log('Equipe marcada como offline:', equipe.nome);
                 }
             });
             
-            carregarEquipes();
+            carregarUsuarios();
         } catch (error) {
-            console.error('Erro ao monitorar status:', error);
+            console.error('Erro ao monitorar:', error);
         }
     }, 5000);
-}
-
-// ATUALIZAR SELECT DE EQUIPES PARA TRÂNSITO
-function atualizarSelectTrafegoEquipes() {
-    const select = document.getElementById('traffic-equipe-select');
-    select.innerHTML = '<option value="">Sua localização</option>';
-    
-    equipasDados.forEach(equipe => {
-        const option = document.createElement('option');
-        option.value = equipe.id;
-        option.textContent = `${equipe.nome} (${equipe.lider})`;
-        select.appendChild(option);
-    });
-    
-    // Event listener para mudança de seleção
-    select.onchange = () => {
-        const equipeId = select.value;
-        if (equipeId) {
-            const equipe = equipasDados.find(e => e.id === equipeId);
-            if (equipe && equipe.localizacaoAtual) {
-                atualizarTrafegoEmTempoReal(equipe.localizacaoAtual);
-            }
-        } else {
-            if (localizacaoAtual) {
-                atualizarTrafegoEmTempoReal(localizacaoAtual);
-            }
-        }
-    };
-}
-
-// ATUALIZAR TRÂNSITO BASEADO NA LOCALIZAÇÃO (USUÁRIO OU EQUIPE)
-async function atualizarTrafegoEmTempoReal(localizacao) {
-    const loc = localizacao || localizacaoAtual;
-    
-    if (!loc) {
-        document.getElementById('traffic-location').textContent = 'Aguardando GPS...';
-        return;
-    }
-    
-    try {
-        // Tentar obter nome da cidade via API de geocoding reverso
-        const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${loc.lat}&lon=${loc.lng}`
-        );
-        
-        if (response.ok) {
-            const data = await response.json();
-            const cidade = data.address.city || data.address.town || data.address.village || data.address.state || 'Localização atual';
-            document.getElementById('traffic-location').textContent = cidade;
-        }
-    } catch (error) {
-        console.log('API de geocoding não disponível');
-        document.getElementById('traffic-location').textContent = `${loc.lat.toFixed(2)}, ${loc.lng.toFixed(2)}`;
-    }
-    
-    // Simulação realista de trânsito baseado em hora do dia
-    const hora = new Date().getHours();
-    let trafegoAtual = '';
-    let cor = '';
-    
-    // Horários de pico
-    if ((hora >= 7 && hora <= 9) || (hora >= 17 && hora <= 19)) {
-        // Picos matinal e noturno
-        const opcoes = ['⚠️ Moderado', '🚨 Congestionado'];
-        const idx = Math.floor(Math.random() * opcoes.length);
-        trafegoAtual = opcoes[idx];
-        cor = idx === 0 ? '#f39c12' : '#e74c3c';
-    } else if (hora >= 10 && hora <= 16) {
-        // Horário comercial
-        trafegoAtual = '✅ Normal';
-        cor = '#27ae60';
-    } else {
-        // Madrugada/madrugada
-        trafegoAtual = '✅ Normal';
-        cor = '#27ae60';
-    }
-    
-    document.getElementById('traffic-status').innerHTML = `
-        <div style="background: ${cor}; color: white; padding: 8px; border-radius: 3px; margin: 5px 0; font-size: 12px; font-weight: bold;">
-            ${trafegoAtual}
-        </div>
-        <small style="color: #666; margin-top: 3px; display: block;">
-            Atualizado: ${new Date().toLocaleTimeString()}
-        </small>
-    `;
 }
 
 // MAPA
@@ -514,334 +723,229 @@ function inicializarMapa() {
     
     mapa = L.map('map').setView([-23.5505, -46.6333], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
+        attribution: '© OpenStreetMap',
         maxZoom: 19
     }).addTo(mapa);
     
-    setTimeout(() => mapa.invalidateSize(), 200);
+    // Múltiplas tentativas de redimensionar o mapa
+    setTimeout(() => {
+        if (mapa) {
+            mapa.invalidateSize();
+        }
+    }, 200);
+    
+    setTimeout(() => {
+        if (mapa) {
+            mapa.invalidateSize();
+        }
+    }, 500);
+    
+    setTimeout(() => {
+        if (mapa) {
+            mapa.invalidateSize();
+        }
+    }, 1000);
 }
 
-// PONTOS
-document.getElementById('adicionar-ponto').onclick = async () => {
-    const nome = document.getElementById('ponto-nome').value;
-    const lat = parseFloat(document.getElementById('ponto-lat').value);
-    const lng = parseFloat(document.getElementById('ponto-lng').value);
+function atualizarMarkerUsuario() {
+    if (!localizacaoAtual || !mapa) return;
     
-    if (!nome || !lat || !lng || isNaN(lat) || isNaN(lng)) {
-        alert('Preencha todos os campos');
-        return;
-    }
+    if (usuarioMarker) mapa.removeLayer(usuarioMarker);
     
-    try {
-        await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').add({
-            nome, lat, lng, criado: new Date()
-        });
-        document.getElementById('ponto-nome').value = '';
-        document.getElementById('ponto-lat').value = '';
-        document.getElementById('ponto-lng').value = '';
-        carregarPontos();
-        atualizarSelectDestinos();
-        console.log('✅ Ponto adicionado:', nome);
-    } catch (error) {
-        console.error('Erro ao adicionar ponto:', error);
-    }
-};
-
-async function carregarPontos() {
-    try {
-        const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').get();
-        document.getElementById('lista-pontos').innerHTML = '';
-        pontosDados = [];
-        
-        console.log('📌 Total de pontos no Firebase:', snapshot.size);
-        
-        snapshot.forEach(doc => {
-            const ponto = doc.data();
-            pontosDados.push({ id: doc.id, ...ponto });
-            
-            const div = document.createElement('div');
-            div.className = 'lista-item';
-            div.innerHTML = `<b>${ponto.nome}</b><br><button onclick="removerPonto('${doc.id}')">Remover</button>`;
-            document.getElementById('lista-pontos').appendChild(div);
-        });
-        
-        console.log('📌 Pontos carregados em memória:', pontosDados.length);
-    } catch (error) {
-        console.error('Erro ao carregar pontos:', error);
-    }
-}
-
-function mostrarUsuarioNoMapa() {
-    if (!localizacaoAtual) {
-        alert('Localização do GPS ainda não disponível');
-        return;
-    }
-    
-    // Limpar outros markers
-    Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
-    Object.values(equipesMarkers).forEach(m => mapa.removeLayer(m));
-    pontosMarkers = {};
-    equipesMarkers = {};
-    
-    // Centralizar no usuário
-    mapa.setView([localizacaoAtual.lat, localizacaoAtual.lng], 15);
-    atualizarMarkerUsuario();
-    alert('📍 Sua localização no mapa!');
+    usuarioMarker = L.marker([localizacaoAtual.lat, localizacaoAtual.lng], {
+        icon: L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        })
+    }).addTo(mapa).bindPopup(`<b>👤 ${perfilUsuario.nome}</b><br>Você está aqui`);
 }
 
 function mostrarPontosNoMapa() {
-    console.log('🔍 Tentando plotar pontos no mapa...');
-    console.log('📌 Pontos disponíveis:', pontosDados);
-    
-    // Limpar markers anteriores
     Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
     pontosMarkers = {};
     
+    console.log('📌 Tentando plotar pontos:', pontosDados.length);
+    
     if (pontosDados.length === 0) {
         alert('❌ Nenhum ponto cadastrado. Adicione pontos primeiro!');
-        console.log('⚠️ Lista de pontos vazia!');
         return;
     }
     
-    console.log(`✅ Plotando ${pontosDados.length} pontos no mapa...`);
-    
     pontosDados.forEach(ponto => {
-        console.log(`📍 Adicionando ponto: ${ponto.nome} em (${ponto.lat}, ${ponto.lng})`);
+        console.log(`📍 Plotando: ${ponto.nome} em (${ponto.lat}, ${ponto.lng})`);
         
-        const marker = L.marker([ponto.lat, ponto.lng], { 
+        // Usar ícone padrão do Leaflet com cor customizada
+        const marker = L.marker([ponto.lat, ponto.lng], {
             icon: L.icon({
-                iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40" width="30" height="40">
-                        <path d="M15 0C8 0 2 6 2 15c0 10 13 25 13 25s13-15 13-25c0-9-6-15-13-15z" fill="#667eea"/>
-                        <circle cx="15" cy="12" r="5" fill="white"/>
-                    </svg>
-                `)}`,
-                iconSize: [30, 40],
-                iconAnchor: [15, 40],
-                popupAnchor: [0, -40]
-            }),
-            title: ponto.nome 
-        })
-            .addTo(mapa)
-            .bindPopup(`<b>📌 ${ponto.nome}</b><br>Lat: ${ponto.lat.toFixed(4)}<br>Lng: ${ponto.lng.toFixed(4)}`);
-        
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-violet.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            })
+        }).addTo(mapa).bindPopup(`<b>📍 ${ponto.nome}</b>`);
         pontosMarkers[ponto.id] = marker;
     });
     
-    // Ajustar zoom para ver todos os pontos
     if (Object.keys(pontosMarkers).length > 0) {
-        const bounds = Object.values(pontosMarkers).map(m => m.getLatLng());
-        if (bounds.length === 1) {
-            // Se apenas um ponto
-            mapa.setView(bounds[0], 15);
-        } else {
-            // Se múltiplos pontos
-            const group = new L.featureGroup(Object.values(pontosMarkers));
-            mapa.fitBounds(group.getBounds().pad(0.1));
-        }
+        const group = new L.featureGroup(Object.values(pontosMarkers));
+        mapa.fitBounds(group.getBounds().pad(0.1));
         alert(`✅ ${pontosDados.length} ponto(s) exibido(s) no mapa!`);
-    }
-}
-
-async function removerPonto(id) {
-    if (confirm('Remover este ponto?')) {
-        await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').doc(id).delete();
-        carregarPontos();
-        atualizarSelectDestinos();
-        mostrarPontosNoMapa();
-    }
-}
-
-// EQUIPES
-document.getElementById('criar-equipe').onclick = async () => {
-    const nome = document.getElementById('equipe-nome').value;
-    const lider = document.getElementById('equipe-lider').value;
-    const destino = document.getElementById('equipe-destino').value;
-    
-    if (!nome || !lider || !destino) {
-        alert('Preencha todos os campos');
-        return;
-    }
-    
-    try {
-        const pontoDestino = pontosDados.find(p => p.id === destino);
-        if (!pontoDestino) {
-            alert('Ponto não encontrado');
-            return;
-        }
-        
-        await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').add({
-            nome, 
-            lider, 
-            destino, 
-            pontoDestino: { lat: pontoDestino.lat, lng: pontoDestino.lng },
-            localizacaoAtual: localizacaoAtual || { lat: -23.5505, lng: -46.6333 },
-            status: 'offline', 
-            criado: new Date(),
-            ultimaAtualizacao: new Date()
-        });
-        document.getElementById('equipe-nome').value = '';
-        document.getElementById('equipe-lider').value = '';
-        document.getElementById('equipe-destino').value = '';
-        carregarEquipes();
-    } catch (error) {
-        console.error('Erro ao criar equipe:', error);
-    }
-};
-
-async function carregarEquipes() {
-    try {
-        const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
-        document.getElementById('lista-equipes').innerHTML = '';
-        equipasDados = [];
-        
-        snapshot.forEach(doc => {
-            const equipe = doc.data();
-            equipasDados.push({ id: doc.id, ...equipe });
-            
-            const div = document.createElement('div');
-            div.className = 'lista-item';
-            const statusIcon = equipe.status === 'offline' ? '⚫' : equipe.status === 'online' ? '🟢' : '🟡';
-            div.innerHTML = `<b>${statusIcon} ${equipe.nome}</b><br><small>👤 ${equipe.lider}</small><br><small>Status: ${equipe.status}</small><br><button onclick="removerEquipe('${doc.id}')">Remover</button>`;
-            document.getElementById('lista-equipes').appendChild(div);
-        });
-        
-        // Atualizar select de trânsito
-        atualizarSelectTrafegoEquipes();
-    } catch (error) {
-        console.error('Erro ao carregar equipes:', error);
+        console.log('✅ Pontos plotados com sucesso!');
     }
 }
 
 function mostrarEquipesNoMapa() {
-    Object.values(equipesMarkers).forEach(m => mapa.removeLayer(m));
-    equipesMarkers = {};
+    Object.values(usuariosMarkers).forEach(m => mapa.removeLayer(m));
+    usuariosMarkers = {};
     
-    if (equipasDados.length === 0) {
-        alert('Nenhuma equipe cadastrada');
+    usuariosDados.forEach(usuario => {
+        if (!usuario.localizacaoAtual) return;
+        
+        const coresMarkers = {
+            'offline': 'red',
+            'online': 'green',
+            'em_rota': 'orange'
+        };
+        
+        const corMarker = coresMarkers[usuario.status] || 'grey';
+        
+        const marker = L.marker([usuario.localizacaoAtual.lat, usuario.localizacaoAtual.lng], {
+            icon: L.icon({
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${corMarker}.png`,
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            })
+        }).addTo(mapa).bindPopup(`<b>👤 ${usuario.nome}</b><br>Role: ${usuario.role}<br>Status: ${usuario.status}`);
+        
+        usuariosMarkers[usuario.id] = marker;
+    });
+}
+
+function mostrarTodosNoMapa() {
+    mostrarPontosNoMapa();
+    mostrarEquipesNoMapa();
+    atualizarMarkerUsuario();
+}
+
+function calcularDistancias() {
+    if (usuariosDados.length === 0 || pontosDados.length === 0) {
+        alert('É necessário ter usuários e pontos');
         return;
     }
     
-    equipasDados.forEach(equipe => {
-        const coords = equipe.localizacaoAtual || { lat: -23.5505, lng: -46.6333 };
+    const lista = document.getElementById('lista-distancias');
+    lista.innerHTML = '';
+    
+    const resultados = [];
+    
+    usuariosDados.forEach(usuario => {
+        if (!usuario.localizacaoAtual) return;
         
-        const cores = {
-            'offline': '#e74c3c',
-            'online': '#27ae60',
-            'em_deslocamento': '#f39c12'
-        };
-        
-        const cor = cores[equipe.status] || '#3498db';
-        
-        const marker = L.marker([coords.lat, coords.lng], {
-            title: equipe.nome,
-            icon: L.icon({
-                iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40" width="30" height="40">
-                        <path d="M15 0C8 0 2 6 2 15c0 10 13 25 13 25s13-15 13-25c0-9-6-15-13-15z" fill="${cor}"/>
-                        <circle cx="15" cy="10" r="4" fill="white"/>
-                        <path d="M15 15 Q10 20 10 25 L20 25 Q20 20 15 15" fill="white"/>
-                    </svg>
-                `)}`,
-                iconSize: [30, 40],
-                iconAnchor: [15, 40],
-                popupAnchor: [0, -40]
-            })
-        }).addTo(mapa).bindPopup(`
-            <b>${equipe.nome}</b><br>
-            👤 Líder: ${equipe.lider}<br>
-            Status: ${equipe.status}<br>
-            <button onclick="atualizarStatusEquipe('${equipe.id}', 'online')">Online</button>
-            <button onclick="atualizarStatusEquipe('${equipe.id}', 'em_deslocamento')">Em rota</button>
-            <button onclick="atualizarStatusEquipe('${equipe.id}', 'offline')">Offline</button>
-        `);
-        
-        equipesMarkers[equipe.id] = marker;
-        
-        if (equipe.pontoDestino) {
-            L.polyline([
-                [coords.lat, coords.lng],
-                [equipe.pontoDestino.lat, equipe.pontoDestino.lng]
-            ], {
-                color: cor,
-                weight: 2,
-                opacity: 0.7,
-                dashArray: '5, 5'
-            }).addTo(mapa);
-        }
+        pontosDados.forEach(ponto => {
+            const dist = calcularDistanciaHaversine(
+                usuario.localizacaoAtual.lat, usuario.localizacaoAtual.lng,
+                ponto.lat, ponto.lng
+            );
+            
+            resultados.push({
+                usuario: usuario.nome,
+                ponto: ponto.nome,
+                distancia: dist,
+                status: usuario.status
+            });
+        });
     });
     
-    const bounds = Object.values(equipesMarkers).map(m => m.getLatLng());
-    if (bounds.length > 1) {
-        const group = new L.featureGroup(Object.values(equipesMarkers));
-        mapa.fitBounds(group.getBounds().pad(0.1));
-    }
+    resultados.sort((a, b) => a.distancia - b.distancia);
+    
+    resultados.forEach(r => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding: 4px; margin: 3px 0; background: white; border-radius: 2px;';
+        const distTexto = r.distancia < 1 ? `${(r.distancia * 1000).toFixed(0)}m` : `${r.distancia.toFixed(2)}km`;
+        div.innerHTML = `<small><b>${r.usuario}</b> → ${r.ponto}</small><br><small>📏 ${distTexto}</small>`;
+        lista.appendChild(div);
+    });
+    
+    document.getElementById('distancias-info').style.display = 'block';
 }
 
-async function atualizarStatusEquipe(equipeId, novoStatus) {
+function calcularDistanciaHaversine(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function atualizarSelectTrafegoEquipes() {
+    const select = document.getElementById('traffic-equipe-select');
+    select.innerHTML = '<option value="">Sua localização</option>';
+    
+    usuariosDados.forEach(usuario => {
+        const option = document.createElement('option');
+        option.value = usuario.id;
+        option.textContent = `${usuario.nome} (${usuario.role})`;
+        select.appendChild(option);
+    });
+    
+    select.onchange = () => {
+        const usuarioId = select.value;
+        if (usuarioId) {
+            const usuario = usuariosDados.find(u => u.id === usuarioId);
+            if (usuario && usuario.localizacaoAtual) {
+                atualizarTrafegoEmTempoReal(usuario.localizacaoAtual);
+            }
+        } else {
+            atualizarTrafegoEmTempoReal();
+        }
+    };
+}
+
+async function atualizarTrafegoEmTempoReal(loc) {
+    const localizacao = loc || localizacaoAtual;
+    if (!localizacao) return;
+    
     try {
-        await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(equipeId).update({
-            status: novoStatus,
-            ultimaAtualizacao: new Date()
-        });
-        carregarEquipes();
-        if (Object.keys(equipesMarkers).length > 0) {
-            mostrarEquipesNoMapa();
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${localizacao.lat}&lon=${localizacao.lng}`);
+        if (response.ok) {
+            const data = await response.json();
+            const cidade = data.address.city || data.address.town || 'Localização';
+            document.getElementById('traffic-location').textContent = cidade;
         }
     } catch (error) {
-        console.error('Erro ao atualizar status:', error);
+        document.getElementById('traffic-location').textContent = `${localizacao.lat.toFixed(2)}, ${localizacao.lng.toFixed(2)}`;
     }
-}
-
-async function removerEquipe(id) {
-    if (confirm('Remover esta equipe?')) {
-        await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(id).delete();
-        carregarEquipes();
+    
+    const hora = new Date().getHours();
+    let trafego = '✅ Normal';
+    let cor = '#27ae60';
+    
+    if ((hora >= 7 && hora <= 9) || (hora >= 17 && hora <= 19)) {
+        const opcoes = ['⚠️ Moderado', '🚨 Congestionado'];
+        const idx = Math.floor(Math.random() * opcoes.length);
+        trafego = opcoes[idx];
+        cor = idx === 0 ? '#f39c12' : '#e74c3c';
     }
-}
-
-async function atualizarSelectDestinos() {
-    try {
-        const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').get();
-        const select = document.getElementById('equipe-destino');
-        select.innerHTML = '<option value="">Selecione ponto</option>';
-        
-        snapshot.forEach(doc => {
-            const ponto = doc.data();
-            const option = document.createElement('option');
-            option.value = doc.id;
-            option.textContent = ponto.nome;
-            select.appendChild(option);
-        });
-    } catch (error) {
-        console.error('Erro ao atualizar select:', error);
-    }
-}
-
-// MONITORAR EQUIPES EM TEMPO REAL
-function monitorarEquipesRealTime() {
-    setInterval(async () => {
-        if (!rastreando) return;
-        
-        try {
-            const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
-            
-            snapshot.forEach(doc => {
-                const equipe = doc.data();
-                
-                if (equipe.status === 'em_deslocamento' && equipe.localizacaoAtual && equipe.pontoDestino) {
-                    const novaLat = equipe.localizacaoAtual.lat + (Math.random() - 0.5) * 0.002;
-                    const novaLng = equipe.localizacaoAtual.lng + (Math.random() - 0.5) * 0.002;
-                    
-                    db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(doc.id).update({
-                        localizacaoAtual: { lat: novaLat, lng: novaLng }
-                    });
-                }
-            });
-        } catch (error) {
-            console.error('Erro ao monitorar:', error);
-        }
-    }, 5000);
+    
+    document.getElementById('traffic-status').innerHTML = `
+        <div style="background: ${cor}; color: white; padding: 8px; border-radius: 3px; margin: 5px 0; font-size: 12px; font-weight: bold;">
+            ${trafego}
+        </div>
+        <small style="color: #666; margin-top: 3px; display: block;">
+            Atualizado: ${new Date().toLocaleTimeString()}
+        </small>
+    `;
 }
 
 // CONTROLES
@@ -852,105 +956,39 @@ document.getElementById('iniciar-rastreamento').onclick = () => {
 
 document.getElementById('parar-rastreamento').onclick = () => {
     rastreando = false;
-    alert('⏸️ Rastreamento pausado!');
+    alert('⏸️ Pausado');
 };
 
 document.getElementById('centralizar-mapa').onclick = () => {
     if (localizacaoAtual) {
         mapa.setView([localizacaoAtual.lat, localizacaoAtual.lng], 15);
-    } else {
-        mapa.setView([-23.5505, -46.6333], 13);
     }
 };
 
-document.getElementById('mostrar-usuario').onclick = mostrarUsuarioNoMapa;
+document.getElementById('mostrar-usuario').onclick = () => {
+    if (localizacaoAtual) {
+        mapa.setView([localizacaoAtual.lat, localizacaoAtual.lng], 15);
+        atualizarMarkerUsuario();
+    }
+};
+
 document.getElementById('mostrar-pontos').onclick = mostrarPontosNoMapa;
 document.getElementById('mostrar-equipes').onclick = mostrarEquipesNoMapa;
+document.getElementById('mostrar-todos').onclick = mostrarTodosNoMapa;
 document.getElementById('calcular-distancias').onclick = calcularDistancias;
+
 document.getElementById('limpar-mapa').onclick = () => {
     Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
-    Object.values(equipesMarkers).forEach(m => mapa.removeLayer(m));
-    if (usuarioMarker) {
-        mapa.removeLayer(usuarioMarker);
-    }
+    Object.values(usuariosMarkers).forEach(m => mapa.removeLayer(m));
+    if (usuarioMarker) mapa.removeLayer(usuarioMarker);
     pontosMarkers = {};
-    equipesMarkers = {};
+    usuariosMarkers = {};
     usuarioMarker = null;
 };
 
-// CALCULAR DISTÂNCIAS ENTRE EQUIPES E PONTOS
-function calcularDistancias() {
-    if (equipasDados.length === 0 || pontosDados.length === 0) {
-        alert('❌ É necessário ter equipes e pontos cadastrados');
-        return;
-    }
-    
-    const distanciasInfo = document.getElementById('distancias-info');
-    const listaDistancias = document.getElementById('lista-distancias');
-    listaDistancias.innerHTML = '';
-    
-    // Calcular distância entre cada equipe e cada ponto
-    const resultados = [];
-    
-    equipasDados.forEach(equipe => {
-        const equipeLoc = equipe.localizacaoAtual || { lat: -23.5505, lng: -46.6333 };
-        
-        pontosDados.forEach(ponto => {
-            const distancia = calcularDistanciaHaversine(
-                equipeLoc.lat, equipeLoc.lng,
-                ponto.lat, ponto.lng
-            );
-            
-            resultados.push({
-                equipe: equipe.nome,
-                ponto: ponto.nome,
-                distancia: distancia,
-                status: equipe.status
-            });
-        });
-    });
-    
-    // Ordenar por distância (mais perto primeiro)
-    resultados.sort((a, b) => a.distancia - b.distancia);
-    
-    // Exibir resultados
-    resultados.forEach(resultado => {
-        const statusIcon = resultado.status === 'offline' ? '⚫' : resultado.status === 'online' ? '🟢' : '🟡';
-        const distanciaTexto = resultado.distancia < 1 ? 
-            `${(resultado.distancia * 1000).toFixed(0)}m` : 
-            `${resultado.distancia.toFixed(2)}km`;
-        
-        const div = document.createElement('div');
-        div.style.cssText = 'padding: 4px; margin: 3px 0; background: white; border-radius: 2px; border-left: 3px solid #3498db;';
-        div.innerHTML = `
-            <small><b>${statusIcon} ${resultado.equipe}</b> → 📍 ${resultado.ponto}</small><br>
-            <small style="color: #666;">📏 ${distanciaTexto}</small>
-        `;
-        listaDistancias.appendChild(div);
-    });
-    
-    distanciasInfo.style.display = 'block';
-    alert(`✅ Calculadas ${resultados.length} distâncias!`);
-}
+setInterval(() => atualizarTrafegoEmTempoReal(), 30000);
 
-// Fórmula de Haversine para calcular distância entre coordenadas
-function calcularDistanciaHaversine(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Raio da Terra em km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distancia = R * c; // Distância em km
-    return distancia;
-}
-
-// Atualizar trânsito a cada 30 segundos
-setInterval(() => {
-    atualizarTrafegoEmTempoReal();
-}, 30000);
+}); // Fim DOMContentLoaded
 </script>
 
 </body>
