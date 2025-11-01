@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Equipes Com Mapa E Tráfego</title>
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Gestão de Equipes">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    
+    <!-- Leaflet Maps -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: #f5f7fa; }
+        
+        /* AUTH SCREEN */
+        .auth-screen { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .auth-container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
+        .auth-container h2 { margin-bottom: 20px; color: #2c3e50; }
+        .auth-container label { display: block; margin-top: 15px; color: #555; }
+        .auth-container input { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ddd; border-radius: 5px; }
+        .auth-container button { width: 100%; padding: 12px; margin-top: 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .auth-container button:hover { background: #5568d3; }
+        .auth-container a { display: block; margin-top: 15px; text-align: center; color: #667eea; text-decoration: none; }
+        .erro { color: red; margin-top: 10px; font-size: 14px; }
+        
+        /* DASHBOARD */
+        .dashboard { display: flex; height: 100vh; }
+        .sidebar { width: 300px; background: #2c3e50; color: white; overflow-y: auto; padding: 20px; }
+        .sidebar h3 { margin-top: 20px; margin-bottom: 10px; font-size: 14px; color: #bdc3c7; }
+        .sidebar input, .sidebar select { width: 100%; padding: 8px; margin: 5px 0; border: none; border-radius: 3px; }
+        .sidebar button { width: 100%; padding: 10px; margin: 8px 0; background: #667eea; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        .sidebar button:hover { background: #5568d3; }
+        .lista-item { background: #34495e; padding: 10px; margin: 5px 0; border-radius: 3px; font-size: 14px; }
+        .lista-item button { width: auto; padding: 5px 10px; font-size: 12px; margin: 2px; }
+        
+        /* MAIN CONTENT */
+        .main-content { flex: 1; display: flex; flex-direction: column; }
+        .header { background: white; padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #2c3e50; }
+        .header button { background: #e74c3c; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-left: 10px; }
+        
+        .content { flex: 1; display: flex; }
+        #map { flex: 1; background: #eee; }
+        .controls { width: 250px; background: white; border-left: 1px solid #eee; padding: 15px; overflow-y: auto; }
+        .controle-grupo { margin-bottom: 15px; }
+        .controle-grupo label { display: block; margin-bottom: 5px; color: #555; font-weight: bold; }
+        .controle-grupo button { width: 100%; padding: 8px; background: #3498db; color: white; border: none; border-radius: 3px; cursor: pointer; margin: 3px 0; }
+        .controle-grupo button:hover { background: #2980b9; }
+        
+        .traffic-info { background: #f39c12; padding: 10px; border-radius: 3px; margin: 10px 0; color: white; font-size: 12px; }
+        
+        @media (max-width: 768px) {
+            .dashboard { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; max-height: 200px; }
+            .controls { width: 100%; }
+            .content { flex-direction: column; }
+            #map { height: 400px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- TELA DE AUTENTICAÇÃO -->
+<div id="auth-screen" class="auth-screen">
+    <div class="auth-container">
+        <div id="login-view">
+            <h2>🔐 Login</h2>
+            <form id="login-form">
+                <label>E-mail:</label>
+                <input type="email" id="login-email" required>
+                <label>Senha:</label>
+                <input type="password" id="login-password" required>
+                <button type="submit">Entrar</button>
+                <a href="#" id="link-cadastro">Não tem conta? Cadastre-se</a>
+                <div id="login-erro" class="erro"></div>
+            </form>
+        </div>
+        
+        <div id="register-view" style="display:none">
+            <h2>📝 Cadastro</h2>
+            <form id="register-form">
+                <label>E-mail:</label>
+                <input type="email" id="register-email" required>
+                <label>Senha:</label>
+                <input type="password" id="register-password" required>
+                <button type="submit">Cadastrar</button>
+                <a href="#" id="link-login">Voltar ao login</a>
+                <div id="register-erro" class="erro"></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="dashboard" style="display:none">
+    <div class="sidebar">
+        <h1>📍 Gestão de Equipes</h1>
+        <button id="logout-btn" style="background: #e74c3c; margin-top: 20px;">Sair</button>
+        
+        <h3>📍 Pontos de Interesse</h3>
+        <input type="text" id="ponto-nome" placeholder="Nome do ponto">
+        <input type="number" id="ponto-lat" placeholder="Latitude" step="0.0001">
+        <input type="number" id="ponto-lng" placeholder="Longitude" step="0.0001">
+        <button id="adicionar-ponto">Adicionar Ponto</button>
+        <div id="lista-pontos"></div>
+        
+        <h3>👥 Equipes</h3>
+        <input type="text" id="equipe-nome" placeholder="Nome da equipe">
+        <input type="text" id="equipe-lider" placeholder="Líder">
+        <select id="equipe-destino">
+            <option value="">Selecione um ponto</option>
+        </select>
+        <button id="criar-equipe">Criar Equipe</button>
+        <div id="lista-equipes"></div>
+    </div>
+    
+    <div class="main-content">
+        <div class="header">
+            <h1>🗺️ Monitoramento em Tempo Real</h1>
+            <div>
+                <button id="iniciar-rastreamento" style="background: #27ae60;">▶️ Iniciar</button>
+                <button id="parar-rastreamento" style="background: #e67e22;">⏸️ Pausar</button>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div id="map" style="flex: 1;"></div>
+            <div class="controls">
+                <h3>🚦 Trânsito em Tempo Real</h3>
+                <div id="traffic-status"></div>
+                <h3>🎮 Controles</h3>
+                <div class="controle-grupo">
+                    <button id="centralizar-mapa">📍 Centralizar Mapa</button>
+                    <button id="mostrar-pontos">📌 Mostrar Pontos</button>
+                    <button id="mostrar-equipes">👥 Mostrar Equipes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyDFEYVVRPjxUvO7zDsG3RqmdmAgTur_bP4",
+  authDomain: "geoequipes-trafego.firebaseapp.com",
+  projectId: "geoequipes-trafego",
+  storageBucket: "geoequipes-trafego.appspot.com",
+  messagingSenderId: "806195713051",
+  appId: "1:806195713051:web:ea0cfd0b070a0d2673d4be"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let mapa;
+let usuarioAtual = null;
+let rastreando = false;
+let pontosMarkers = {};
+let equipesMarkers = {};
+let pontosDados = [];
+
+// ALTERNÂNCIA ENTRE LOGIN E CADASTRO
+document.getElementById('link-cadastro').onclick = (e) => {
+    e.preventDefault();
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'block';
+};
+
+document.getElementById('link-login').onclick = (e) => {
+    e.preventDefault();
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('register-view').style.display = 'none';
+};
+
+// LOGIN
+document.getElementById('login-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    try {
+        await auth.signInWithEmailAndPassword(email, password);
+    } catch (error) {
+        document.getElementById('login-erro').textContent = error.message;
+    }
+};
+
+// CADASTRO
+document.getElementById('register-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('register-email').value;
+    const password = document.getElementById('register-password').value;
+    try {
+        await auth.createUserWithEmailAndPassword(email, password);
+    } catch (error) {
+        document.getElementById('register-erro').textContent = error.message;
+    }
+};
+
+// LOGOUT
+document.getElementById('logout-btn').onclick = () => {
+    auth.signOut();
+};
+
+// MONITORAR AUTENTICAÇÃO
+auth.onAuthStateChanged(user => {
+    usuarioAtual = user;
+    if (user) {
+        document.getElementById('auth-screen').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'flex';
+        setTimeout(() => inicializarMapa(), 100);
+        carregarPontos();
+        carregarEquipes();
+    } else {
+        document.getElementById('auth-screen').style.display = 'flex';
+        document.getElementById('dashboard').style.display = 'none';
+    }
+});
+
+// MAPA
+function inicializarMapa() {
+    if (mapa) return; // Evitar reinicializar
+    
+    mapa = L.map('map').setView([-23.5505, -46.6333], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(mapa);
+    
+    // Redimensionar mapa quando necessário
+    setTimeout(() => mapa.invalidateSize(), 200);
+}
+
+// PONTOS
+document.getElementById('adicionar-ponto').onclick = async () => {
+    const nome = document.getElementById('ponto-nome').value;
+    const lat = parseFloat(document.getElementById('ponto-lat').value);
+    const lng = parseFloat(document.getElementById('ponto-lng').value);
+    
+    if (!nome || !lat || !lng || isNaN(lat) || isNaN(lng)) {
+        alert('Preencha todos os campos com valores válidos');
+        return;
+    }
+    
+    try {
+        await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').add({
+            nome, lat, lng, criado: new Date()
+        });
+        document.getElementById('ponto-nome').value = '';
+        document.getElementById('ponto-lat').value = '';
+        document.getElementById('ponto-lng').value = '';
+        carregarPontos();
+        atualizarSelectDestinos();
+    } catch (error) {
+        console.error('Erro ao adicionar ponto:', error);
+    }
+};
+
+async function carregarPontos() {
+    try {
+        const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').get();
+        document.getElementById('lista-pontos').innerHTML = '';
+        pontosDados = [];
+        
+        snapshot.forEach(doc => {
+            const ponto = doc.data();
+            pontosDados.push({ id: doc.id, ...ponto });
+            
+            const div = document.createElement('div');
+            div.className = 'lista-item';
+            div.innerHTML = `<b>📍 ${ponto.nome}</b><br><small>Lat: ${ponto.lat.toFixed(4)}, Lng: ${ponto.lng.toFixed(4)}</small><br>
+                <button onclick="removerPonto('${doc.id}')">Remover</button>`;
+            document.getElementById('lista-pontos').appendChild(div);
+        });
+    } catch (error) {
+        console.error('Erro ao carregar pontos:', error);
+    }
+}
+
+function mostrarPontosNoMapa() {
+    // Limpar markers anteriores
+    Object.values(pontosMarkers).forEach(m => mapa.removeLayer(m));
+    pontosMarkers = {};
+    
+    // Adicionar novos markers
+    if (pontosDados.length === 0) {
+        alert('Nenhum ponto cadastrado');
+        return;
+    }
+    
+    pontosDados.forEach(ponto => {
+        const marker = L.marker([ponto.lat, ponto.lng], {
+            title: ponto.nome
+        }).addTo(mapa).bindPopup(`<b>📍 ${ponto.nome}</b><br>Lat: ${ponto.lat.toFixed(4)}<br>Lng: ${ponto.lng.toFixed(4)}`);
+        pontosMarkers[ponto.id] = marker;
+    });
+    
+    // Centralizar mapa nos pontos
+    if (pontosDados.length > 0) {
+        const bounds = Object.values(pontosMarkers).map(m => m.getLatLng());
+        if (bounds.length > 1) {
+            const group = new L.featureGroup(Object.values(pontosMarkers));
+            mapa.fitBounds(group.getBounds().pad(0.1));
+        } else {
+            mapa.setView([pontosDados[0].lat, pontosDados[0].lng], 15);
+        }
+    }
+    
+    alert(`${pontosDados.length} ponto(s) exibido(s) no mapa!`);
+}
+
+async function removerPonto(id) {
+    if (confirm('Tem certeza que deseja remover este ponto?')) {
+        await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').doc(id).delete();
+        carregarPontos();
+        atualizarSelectDestinos();
+        mostrarPontosNoMapa();
+    }
+}
+
+// EQUIPES
+document.getElementById('criar-equipe').onclick = async () => {
+    const nome = document.getElementById('equipe-nome').value;
+    const lider = document.getElementById('equipe-lider').value;
+    const destino = document.getElementById('equipe-destino').value;
+    
+    if (!nome || !lider || !destino) {
+        alert('Preencha todos os campos');
+        return;
+    }
+    
+    try {
+        await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').add({
+            nome, lider, destino, status: 'offline', criado: new Date()
+        });
+        document.getElementById('equipe-nome').value = '';
+        document.getElementById('equipe-lider').value = '';
+        document.getElementById('equipe-destino').value = '';
+        carregarEquipes();
+    } catch (error) {
+        console.error('Erro ao criar equipe:', error);
+    }
+};
+
+async function carregarEquipes() {
+    try {
+        const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').get();
+        document.getElementById('lista-equipes').innerHTML = '';
+        
+        snapshot.forEach(doc => {
+            const equipe = doc.data();
+            const div = document.createElement('div');
+            div.className = 'lista-item';
+            const statusIcons = { 'offline': '⚫', 'em_deslocamento': '🟡', 'chegado': '🟢' };
+            const statusIcon = statusIcons[equipe.status] || '⚪';
+            
+            div.innerHTML = `<b>${statusIcon} ${equipe.nome}</b><br><small>Líder: ${equipe.lider}</small><br><small>Status: ${equipe.status}</small><br>
+                <button onclick="removerEquipe('${doc.id}')">Remover</button>`;
+            document.getElementById('lista-equipes').appendChild(div);
+        });
+    } catch (error) {
+        console.error('Erro ao carregar equipes:', error);
+    }
+}
+
+async function removerEquipe(id) {
+    if (confirm('Tem certeza que deseja remover esta equipe?')) {
+        await db.collection('usuarios').doc(usuarioAtual.uid).collection('equipes').doc(id).delete();
+        carregarEquipes();
+    }
+}
+
+async function atualizarSelectDestinos() {
+    try {
+        const snapshot = await db.collection('usuarios').doc(usuarioAtual.uid).collection('pontos').get();
+        const select = document.getElementById('equipe-destino');
+        select.innerHTML = '<option value="">Selecione um ponto</option>';
+        
+        snapshot.forEach(doc => {
+            const ponto = doc.data();
+            const option = document.createElement('option');
+            option.value = doc.id;
+            option.textContent = ponto.nome;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Erro ao atualizar select:', error);
+    }
+}
+
+// CONTROLES
+document.getElementById('iniciar-rastreamento').onclick = () => {
+    rastreando = true;
+    alert('✅ Rastreamento iniciado!');
+};
+
+document.getElementById('parar-rastreamento').onclick = () => {
+    rastreando = false;
+    alert('⏸️ Rastreamento pausado!');
+};
+
+document.getElementById('centralizar-mapa').onclick = () => {
+    mapa.setView([-23.5505, -46.6333], 13);
+};
+
+document.getElementById('mostrar-pontos').onclick = mostrarPontosNoMapa;
+
+document.getElementById('mostrar-equipes').onclick = () => {
+    alert('Recurso de visualizar equipes no mapa será implementado!');
+};
+
+// SIMULAÇÃO DE TRÂNSITO
+setInterval(() => {
+    const trafegos = ['✅ Fluindo normalmente', '⚠️ Trânsito moderado', '🚨 Congestionado'];
+    const cores = ['#27ae60', '#f39c12', '#e74c3c'];
+    const aleatorio = Math.floor(Math.random() * trafegos.length);
+    const trafico = trafegos[aleatorio];
+    const cor = cores[aleatorio];
+    
+    document.getElementById('traffic-status').innerHTML = `
+        <div style="background: ${cor}; color: white; padding: 10px; border-radius: 3px; margin: 5px 0;">
+            <b>${trafico}</b><br><small>${new Date().toLocaleTimeString()}</small>
+        </div>
+    `;
+}, 3000);
+</script>
+
+</body>
+</html>
